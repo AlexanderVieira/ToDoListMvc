@@ -12,20 +12,26 @@ namespace ToDoList.Repositories
 {
     public class TodoRepository : ITodoRepository
     {
-        private readonly CloudTable _table;
+        private readonly Task<CloudTable> _table;
         private readonly List<TodoModel> _todoModels;
         private TableContinuationToken _continuationToken;
 
         public TodoRepository(IConfigurationRoot configurationRoot)
         {
-            var connStr = configurationRoot.GetSection("MicrosoftAzureStorage:AzureStorageConnectionString");
-            var storageAccount = CloudStorageAccount.Parse(connStr.Value);
-            var tableClient = storageAccount.CreateCloudTableClient();
-            _table = tableClient.GetTableReference("Todo");
-            _table.CreateIfNotExistsAsync();
+            _table = GetTableAsync(configurationRoot);
             _todoModels = new List<TodoModel>();
         }
 
+        public async Task<CloudTable> GetTableAsync(IConfigurationRoot configurationRoot)
+        {
+            var connStr = configurationRoot.GetSection("MicrosoftAzureStorage:AzureStorageConnectionString");
+            var storageAccount = CloudStorageAccount.Parse(connStr.Value);
+            var tableClient = storageAccount.CreateCloudTableClient();
+             var table = tableClient.GetTableReference("Todo");
+            await table.CreateIfNotExistsAsync();
+
+            return table;
+        }
 
         public async Task CreateOrUpdate(TodoModel entity)
         {
@@ -34,7 +40,7 @@ namespace ToDoList.Repositories
             entity.RowKey = entity.Id.ToString();
             entity.PartitionKey = entity.Name;
             var op = TableOperation.InsertOrReplace(entity);
-            await _table.ExecuteAsync(op);
+            await _table.Result.ExecuteAsync(op);
 
         }
 
@@ -45,7 +51,7 @@ namespace ToDoList.Repositories
                     QueryComparisons.Equal, false));
             do
             {
-                var queryResults = await _table.ExecuteQuerySegmentedAsync(query, _continuationToken);
+                var queryResults = await _table.Result.ExecuteQuerySegmentedAsync(query, _continuationToken);
                 _continuationToken = queryResults.ContinuationToken;
                 var tables = queryResults.Results.ToList();
                 _todoModels.AddRange(tables);
@@ -58,14 +64,14 @@ namespace ToDoList.Repositories
         public async Task<TodoModel> GetTodoModel(string pKey, string rKey)
         {
             var op = TableOperation.Retrieve<TodoModel>(pKey, rKey);
-            var result = await _table.ExecuteAsync(op);
+            var result = await _table.Result.ExecuteAsync(op);
             return result.Result as TodoModel;
         }
 
         public async Task Delete(TodoModel entity)
         {
             var op = TableOperation.Delete(entity);
-            await _table.ExecuteAsync(op);
+            await _table.Result.ExecuteAsync(op);
         }
     }
 }
